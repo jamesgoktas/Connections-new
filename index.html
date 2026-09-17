@@ -1,19 +1,868 @@
 ```
+
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Connections Puzzle Platform</title>
+
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+</head>
+
+<body style="margin: 0; background: linear-gradient(180deg, #f7f5ff 0%, #ffffff 260px); font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+
+    const { useState, useEffect, useCallback, useRef } = React;
+
+ 
+
+    const ADMIN_PASSWORD = "SHORESCHOOLISGREAT67";
+
+    const DIFFICULTY_ORDER = ["yellow", "green", "blue", "purple"];
+
+    const DIFFICULTY_STYLE = {
+
+      yellow: { bg: "#f9df6d", label: "Yellow · easiest", emoji: "🟨" },
+
+      green:  { bg: "#a0c35a", label: "Green", emoji: "🟩" },
+
+      blue:   { bg: "#b0c4ef", label: "Blue", emoji: "🟦" },
+
+      purple: { bg: "#ba81c5", label: "Purple · trickiest", emoji: "🟪" },
+
+    };
+
+ 
+
+    function shuffle(arr) {
+
+      const a = [...arr];
+
+      for (let i = a.length - 1; i > 0; i--) {
+
+        const j = Math.floor(Math.random() * (i + 1));
+
+        [a[i], a[j]] = [a[j], a[i]];
+
+      }
+
+      return a;
+
+    }
+
+ 
+
+    function formatTime(sec) {
+
+      return `${Math.floor(sec / 60)}:${(sec % 60).toString().padStart(2, "0")}`;
+
+    }
+
+ 
+
+    function ConnectionsRoot() {
+
+      const [showAdmin, setShowAdmin] = useState(false);
+
+      const clickCount = useRef(0);
+
+      const clickTimer = useRef(null);
+
+ 
+
+      const triggerSecret = () => {
+
+        clickCount.current += 1;
+
+        clearTimeout(clickTimer.current);
+
+        clickTimer.current = setTimeout(() => { clickCount.current = 0; }, 1500);
+
+        if (clickCount.current >= 7) {
+
+          clickCount.current = 0;
+
+          setShowAdmin(true);
+
+        }
+
+      };
+
+ 
+
+      return (
+
+        <div>
+
+          <GameApp onSecretTrigger={triggerSecret} />
+
+          {showAdmin && (
+
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={(e) => e.target === e.currentTarget && setShowAdmin(false)}>
+
+              <div style={{ background: "#fff", borderRadius: 16, width: "min(500px, 90%)", padding: 24, position: "relative" }}>
+
+                <button onClick={() => setShowAdmin(false)} style={{ position: "absolute", top: 10, right: 14, background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#999" }}>×</button>
+
+                <AdminGate onClose={() => setShowAdmin(false)} />
+
+              </div>
+
+            </div>
+
+          )}
+
+        </div>
+
+      );
+
+    }
+
+ 
+
+    function AdminGate({ onClose }) {
+
+      const [authed, setAuthed] = useState(false);
+
+      const [pw, setPw] = useState("");
+
+      const [error, setError] = useState("");
+
+ 
+
+      const submit = () => {
+
+        if (pw === ADMIN_PASSWORD) { setAuthed(true); setError(""); }
+
+        else { setError("That password isn't right."); }
+
+      };
+
+ 
+
+      if (authed) return <AdminPanel />;
+
+ 
+
+      return (
+
+        <div style={{ textAlign: "center", padding: "20px 10px" }}>
+
+          <h2 style={{ margin: "0 0 10px" }}>Admin Access</h2>
+
+          <p style={{ fontSize: 14, color: "#666", marginBottom: 20 }}>Enter the secret system key to build custom puzzles.</p>
+
+          <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Password" style={{ width: "100%", padding: 12, border: "2px solid #000", borderRadius: 8, marginBottom: 12, boxSizing: "border-box" }} autoFocus />
+
+          {error && <div style={{ color: "#c0392b", fontSize: 13, marginBottom: 12 }}>{error}</div>}
+
+          <button onClick={submit} style={{ width: "100%", padding: 12, background: "#6C5CE7", color: "#fff", border: "none", borderRadius: 8, fontWeight: "bold", cursor: "pointer" }}>Enter Dashboard</button>
+
+        </div>
+
+      );
+
+    }
+
+ 
+
+    function AdminPanel() {
+
+      const [puzzles, setPuzzles] = useState([]);
+
+      const [name, setName] = useState("");
+
+      const [groups, setGroups] = useState(DIFFICULTY_ORDER.map(d => ({ difficulty: d, category: "", words: ["", "", "", ""] })));
+
+ 
+
+      useEffect(() => {
+
+        const stored = localStorage.getItem("puzzles_index");
+
+        if (stored) setPuzzles(JSON.parse(stored));
+
+      }, []);
+
+ 
+
+      const savePuzzle = () => {
+
+        if (!name.trim()) return alert("Give your puzzle a name.");
+
+        const newPuzzle = { id: Date.now().toString(36), name, groups };
+
+        const updated = [...puzzles, newPuzzle];
+
+        setPuzzles(updated);
+
+        localStorage.setItem("puzzles_index", JSON.stringify(updated));
+
+        alert("Puzzle saved successfully to local storage!");
+
+        setName("");
+
+        setGroups(DIFFICULTY_ORDER.map(d => ({ difficulty: d, category: "", words: ["", "", "", ""] })));
+
+      };
+
+ 
+
+      return (
+
+        <div style={{ maxHeight: "70vh", overflowY: "auto", paddingRight: 4 }}>
+
+          <h3 style={{ margin: "0 0 10px" }}>Create Puzzle</h3>
+
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Puzzle Group Title (e.g. Daily #1)" style={{ width: "100%", padding: 10, marginBottom: 16, border: "1px solid #ccc", borderRadius: 6, boxSizing: "border-box" }} />
+
+          {groups.map((g, gi) => (
+
+            <div key={g.difficulty} style={{ marginBottom: 14, padding: 10, background: DIFFICULTY_STYLE[g.difficulty].bg + "40", borderRadius: 8 }}>
+
+              <strong style={{ fontSize: 13, textTransform: "capitalize" }}>{DIFFICULTY_STYLE[g.difficulty].emoji} {g.difficulty} Category Name:</strong>
+
+              <input type="text" value={g.category} onChange={(e) => {
+
+                const n = [...groups]; n[gi].category = e.target.value; setGroups(n);
+
+              }} placeholder="Category Title" style={{ width: "100%", padding: 8, margin: "6px 0", border: "1px solid #ccc", borderRadius: 6, boxSizing: "border-box" }} />
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+
+                {g.words.map((w, wi) => (
+
+                  <input key={wi} type="text" value={w} onChange={(e) => {
+
+                    const n = [...groups]; n[gi].words[wi] = e.target.value; setGroups(n);
+
+                  }} placeholder={"W" + (wi+1)} style={{ padding: 6, border: "1px solid #ccc", borderRadius: 6, width: "100%", boxSizing: "border-box" }} />
+
+                ))}
+
+              </div>
+
+            </div>
+
+          ))}
+
+          <button onClick={savePuzzle} style={{ width: "100%", padding: 12, background: "linear-gradient(90deg, #6C5CE7, #FF6FA5)", color: "#fff", border: "none", borderRadius: 8, fontWeight: "bold", cursor: "pointer" }}>Save Board Template</button>
+
+        </div>
+
+      );
+
+    }
+
+ 
+
+    function GameApp({ onSecretTrigger }) {
+
+      const [puzzles, setPuzzles] = useState([]);
+
+      const [activePuzzle, setActivePuzzle] = useState(null);
+
+ 
+
+      useEffect(() => {
+
+        const stored = localStorage.getItem("puzzles_index");
+
+        if (stored) setPuzzles(JSON.parse(stored));
+
+      }, [activePuzzle]);
+
+ 
+
+      if (activePuzzle) {
+
+        return <GameBoard puzzle={activePuzzle} onBack={() => setActivePuzzle(null)} />;
+
+      }
+
+ 
+
+      return (
+
+        <div style={{ maxWidth: 600, margin: "0 auto", padding: "40px 20px", textAlign: "center" }}>
+
+          <h1 onClick={onSecretTrigger} style={{ fontSize: 36, fontWeight: 800, margin: "0 0 4px", cursor: "pointer", background: "linear-gradient(90deg, #6C5CE7, #FF6FA5)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Connections</h1>
+
+          <p style={{ color: "#666", fontSize: 15, marginBottom: 30 }}>Connect matching tiles into clusters of four identical themes.</p>
+
+          <div style={{ background: "#fafafa", border: "1px solid #eee", borderRadius: 12, padding: 20, textAlign: "left" }}>
+
+            <h3 style={{ margin: "0 0 12px", fontSize: 13, color: "#6C5CE7", letterSpacing: 0.5 }}>AVAILABLE PUZZLE BOARDS</h3>
+
+            {puzzles.length === 0 ? (
+
+              <p style={{ color: "#999", fontSize: 14, margin: 0 }}>No custom puzzles created yet. Tap the main title 7 times to create your first game board!</p>
+
+            ) : (
+
+              <div style={{ display: "grid", gap: 10 }}>
+
+                {puzzles.map(p => (
+
+                  <button key={p.id} onClick={() => setActivePuzzle(p)} style={{ width: "100%", padding: 14, background: "#fff", border: "1px solid #ddd", borderRadius: 10, textAlign: "left", fontWeight: "bold", fontSize: 15, cursor: "pointer", display: "flex", justifyContent: "space-between" }}>
+
+                    <span>{p.name}</span>
+
+                    <span style={{ color: "#6C5CE7" }}>Launch Board →</span>
+
+                  </button>
+
+                ))}
+
+              </div>
+
+            )}
+
+          </div>
+
+        </div>
+
+      );
+
+    }
+
+ 
+
+    function GameBoard({ puzzle, onBack }) {
+
+      const [tiles, setTiles] = useState([]);
+
+      const [selected, setSelected] = useState([]);
+
+      const [solved, setSolved] = useState([]);
+
+      const [mistakes, setMistakes] = useState(0);
+
+      const [status, setStatus] = useState("playing");
+
+ 
+
+      useEffect(() => {
+
+        const allTiles = puzzle.groups.flatMap((g, gi) =>
+
+          g.words.map(word => ({ word, groupIndex: gi }))
+
+        );
+
+        setTiles(shuffle(allTiles));
+
+        setSelected([]);
+
+        setSolved([]);
+
+        setMistakes(0);
+
+        setStatus("playing");
+
+      }, [puzzle]);
+
+ 
+
+      const handleTileClick = (tile) => {
+
+        if (status !== "playing") return;
+
+ 
+
+        if (selected.some(s => s.word === tile.word)) {
+
+          setSelected(selected.filter(s => s.word !== tile.word));
+
+        } else if (selected.length < 4) {
+
+          setSelected([...selected, tile]);
+
+        }
+
+      };
+
+ 
+
+      const handleSubmit = () => {
+
+        if (selected.length !== 4) return;
+
+ 
+
+        const targetGroup = selected[0].groupIndex;
+
+        const isCorrect = selected.every(
+
+          s => s.groupIndex === targetGroup
+
+        );
+
+ 
+
+        if (isCorrect) {
+
+          const nextSolved = [...solved, targetGroup];
+
+          setSolved(nextSolved);
+
+          setSelected([]);
+
+ 
+
+          if (nextSolved.length === 4) {
+
+            setStatus("won");
+
+          }
+
+        } else {
+
+          const nextMistakes = mistakes + 1;
+
+          setMistakes(nextMistakes);
+
+          setSelected([]);
+
+ 
+
+          if (nextMistakes >= 4) {
+
+            setSolved([0, 1, 2, 3]);
+
+            setStatus("lost");
+
+          } else {
+
+            alert("Not quite right — try adjusting your matches!");
+
+          }
+
+        }
+
+      };
+
+ 
+
+      const remainingTiles = tiles.filter(
+
+        t => !solved.includes(t.groupIndex)
+
+      );
+
+ 
+
+      return (
+
+        <div style={{
+
+          maxWidth: 500,
+
+          margin: "0 auto",
+
+          padding: "24px 16px"
+
+        }}>
+
+          <div style={{
+
+            display: "flex",
+
+            justifyContent: "space-between",
+
+            alignItems: "center",
+
+            marginBottom: 16
+
+          }}>
+
+            <button
+
+              onClick={onBack}
+
+              style={{
+
+                background: "none",
+
+                border: "none",
+
+                fontWeight: "bold",
+
+                color: "#666",
+
+                cursor: "pointer"
+
+              }}
+
+            >
+
+              ← Exit Board
+
+            </button>
+
+            <span style={{ fontSize: 13, color: "#999" }}>
+
+              {puzzle.name}
+
+            </span>
+
+          </div>
+
+ 
+
+          <h2 style={{ textAlign: "center", margin: "0 0 18px" }}>
+
+            Connections
+
+          </h2>
+
+ 
+
+          <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
+
+            {solved.map(gi => (
+
+              <div
+
+                key={gi}
+
+                style={{
+
+                  background: DIFFICULTY_STYLE[DIFFICULTY_ORDER[gi]].bg,
+
+                  borderRadius: 10,
+
+                  padding: 14,
+
+                  textAlign: "center",
+
+                  fontWeight: "bold"
+
+                }}
+
+              >
+
+                <div style={{ fontSize: 14, letterSpacing: 0.5 }}>
+
+                  {puzzle.groups[gi].category.toUpperCase()}
+
+                </div>
+
+                <div style={{
+
+                  fontSize: 13,
+
+                  fontWeight: "normal",
+
+                  marginTop: 2
+
+                }}>
+
+                  {puzzle.groups[gi].words.join(", ")}
+
+                </div>
+
+              </div>
+
+            ))}
+
+          </div>
+
+ 
+
+          {status === "playing" && (
+
+            <div style={{
+
+              display: "grid",
+
+              gridTemplateColumns: "repeat(4, 1fr)",
+
+              gap: 8,
+
+              marginBottom: 20
+
+            }}>
+
+              {remainingTiles.map((t, index) => {
+
+                const isSel = selected.some(s => s.word === t.word);
+
+ 
+
+                return (
+
+                  <button
+
+                    key={`${t.word}-${index}`}
+
+                    onClick={() => handleTileClick(t)}
+
+                    style={{
+
+                      aspectRatio: "1.3",
+
+                      padding: 4,
+
+                      background: isSel
+
+                        ? "linear-gradient(90deg, #6C5CE7, #FF6FA5)"
+
+                        : "#f1eefc",
+
+                      color: isSel ? "#fff" : "#000",
+
+                      border: "none",
+
+                      borderRadius: 8,
+
+                      fontWeight: "bold",
+
+                      fontSize: 12,
+
+                      cursor: "pointer",
+
+                      textTransform: "uppercase",
+
+                      wordBreak: "break-word"
+
+                    }}
+
+                  >
+
+                    {t.word}
+
+                  </button>
+
+                );
+
+              })}
+
+            </div>
+
+          )}
+
+ 
+
+          <div style={{ textAlign: "center", marginBottom: 20 }}>
+
+            <span style={{ fontSize: 14, fontWeight: "bold" }}>
+
+              Strikes Remaining:{" "}
+
+            </span>
+
+            {Array.from({ length: 4 }).map((_, i) => (
+
+              <span
+
+                key={i}
+
+                style={{
+
+                  width: 10,
+
+                  height: 10,
+
+                  borderRadius: "50%",
+
+                  background: i < (4 - mistakes) ? "#000" : "#ddd",
+
+                  display: "inline-block",
+
+                  margin: "0 3px"
+
+                }}
+
+              />
+
+            ))}
+
+          </div>
+
+ 
+
+          {status === "playing" ? (
+
+            <div style={{
+
+              display: "flex",
+
+              justifyContent: "center",
+
+              gap: 10
+
+            }}>
+
+              <button
+
+                onClick={() => setTiles(shuffle(remainingTiles))}
+
+                style={{
+
+                  padding: "10px 16px",
+
+                  border: "1px solid #6C5CE7",
+
+                  background: "#fff",
+
+                  color: "#6C5CE7",
+
+                  borderRadius: 20,
+
+                  fontWeight: "bold",
+
+                  cursor: "pointer"
+
+                }}
+
+              >
+
+                Shuffle Tiles
+
+              </button>
+
+ 
+
+              <button
+
+                onClick={handleSubmit}
+
+                disabled={selected.length !== 4}
+
+                style={{
+
+                  padding: "10px 20px",
+
+                  background: selected.length === 4 ? "#6C5CE7" : "#ccc",
+
+                  color: "#fff",
+
+                  border: "none",
+
+                  borderRadius: 20,
+
+                  fontWeight: "bold",
+
+                  cursor: selected.length === 4 ? "pointer" : "default"
+
+                }}
+
+              >
+
+                Submit Set
+
+              </button>
+
+            </div>
+
+          ) : (
+
+            <div style={{ textAlign: "center", padding: 10 }}>
+
+              <div style={{
+
+                fontSize: 20,
+
+                fontWeight: "bold",
+
+                marginBottom: 14
+
+              }}>
+
+                {status === "won" ? "Nicely Done! 🎉" : "Game Over! ⛔"}
+
+              </div>
+
+ 
+
+              <button
+
+                onClick={onBack}
+
+                style={{
+
+                  padding: "10px 24px",
+
+                  background: "#6C5CE7",
+
+                  color: "#fff",
+
+                  border: "none",
+
+                  borderRadius: 20,
+
+                  fontWeight: "bold",
+
+                  cursor: "pointer"
+
+                }}
+
+              >
+
+                Return to Menu
+
+              </button>
+
+            </div>
+
+          )}
+
+        </div>
+
+      );
+
+    }
+
+ 
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+
+    root.render(<ConnectionsRoot />);
+
+    </script>
+
+</body>
+
+</html>
+
+
+________________________________________
+From: STUY10 - Jimmy Goktas <jg.165922@student.shore.nsw.edu.au>
+Sent: Thursday, September 17, 2026 12:08 PM
+To: STUY10 - Aaron Gemell <ag.194255@student.shore.nsw.edu.au>
+Subject: 
+ 
+```
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Connections Puzzle Platform</title>
-    <script src="https://unpkg.com" crossorigin></script>
-    <script src="https://unpkg.com" crossorigin></script>
-    <script src="https://unpkg.com"></script>
+    <script src=https://unpkg.com crossorigin></script>
+    <script src=https://unpkg.com crossorigin></script>
+    <script src=https://unpkg.com></script>
 </head>
 <body style="margin: 0; background: linear-gradient(180deg, #f7f5ff 0%, #ffffff 260px); font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
     <div id="root"></div>
     <script type="text/babel">
     const { useState, useEffect, useCallback, useRef } = React;
-
+ 
     const ADMIN_PASSWORD = "SHORESCHOOLISGREAT67";
     const DIFFICULTY_ORDER = ["yellow", "green", "blue", "purple"];
     const DIFFICULTY_STYLE = {
@@ -22,7 +871,7 @@
       blue:   { bg: "#b0c4ef", label: "Blue", emoji: "🟦" },
       purple: { bg: "#ba81c5", label: "Purple · trickiest", emoji: "🟪" },
     };
-
+ 
     function shuffle(arr) {
       const a = [...arr];
       for (let i = a.length - 1; i > 0; i--) {
@@ -31,16 +880,16 @@
       }
       return a;
     }
-
+ 
     function formatTime(sec) {
       return `${Math.floor(sec / 60)}:${(sec % 60).toString().padStart(2, "0")}`;
     }
-
+ 
     function ConnectionsRoot() {
       const [showAdmin, setShowAdmin] = useState(false);
       const clickCount = useRef(0);
       const clickTimer = useRef(null);
-
+ 
       const triggerSecret = () => {
         clickCount.current += 1;
         clearTimeout(clickTimer.current);
@@ -50,7 +899,7 @@
           setShowAdmin(true);
         }
       };
-
+ 
       return (
         <div>
           <GameApp onSecretTrigger={triggerSecret} />
@@ -65,19 +914,19 @@
         </div>
       );
     }
-
+ 
     function AdminGate({ onClose }) {
       const [authed, setAuthed] = useState(false);
       const [pw, setPw] = useState("");
       const [error, setError] = useState("");
-
+ 
       const submit = () => {
         if (pw === ADMIN_PASSWORD) { setAuthed(true); setError(""); }
         else { setError("That password isn't right."); }
       };
-
+ 
       if (authed) return <AdminPanel />;
-
+ 
       return (
         <div style={{ textAlign: "center", padding: "20px 10px" }}>
           <h2 style={{ margin: "0 0 10px" }}>Admin Access</h2>
@@ -88,17 +937,17 @@
         </div>
       );
     }
-
+ 
     function AdminPanel() {
       const [puzzles, setPuzzles] = useState([]);
       const [name, setName] = useState("");
       const [groups, setGroups] = useState(DIFFICULTY_ORDER.map(d => ({ difficulty: d, category: "", words: ["", "", "", ""] })));
-
+ 
       useEffect(() => {
         const stored = localStorage.getItem("puzzles_index");
         if (stored) setPuzzles(JSON.parse(stored));
       }, []);
-
+ 
       const savePuzzle = () => {
         if (!name.trim()) return alert("Give your puzzle a name.");
         const newPuzzle = { id: Date.now().toString(36), name, groups };
@@ -109,7 +958,7 @@
         setName("");
         setGroups(DIFFICULTY_ORDER.map(d => ({ difficulty: d, category: "", words: ["", "", "", ""] })));
       };
-
+ 
       return (
         <div style={{ maxHeight: "70vh", overflowY: "auto", paddingRight: 4 }}>
           <h3 style={{ margin: "0 0 10px" }}>Create Puzzle</h3>
@@ -133,20 +982,20 @@
         </div>
       );
     }
-
+ 
     function GameApp({ onSecretTrigger }) {
       const [puzzles, setPuzzles] = useState([]);
       const [activePuzzle, setActivePuzzle] = useState(null);
-
+ 
       useEffect(() => {
         const stored = localStorage.getItem("puzzles_index");
         if (stored) setPuzzles(JSON.parse(stored));
       }, [activePuzzle]);
-
+ 
       if (activePuzzle) {
         return <GameBoard puzzle={activePuzzle} onBack={() => setActivePuzzle(null)} />;
       }
-
+ 
       return (
         <div style={{ maxWidth: 600, margin: "0 auto", padding: "40px 20px", textAlign: "center" }}>
           <h1 onClick={onSecretTrigger} style={{ fontSize: 36, fontWeight: 800, margin: "0 0 4px", cursor: "pointer", background: "linear-gradient(90deg, #6C5CE7, #FF6FA5)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Connections</h1>
@@ -169,14 +1018,14 @@
         </div>
       );
     }
-
+ 
     function GameBoard({ puzzle, onBack }) {
       const [tiles, setTiles] = useState([]);
       const [selected, setSelected] = useState([]);
       const [solved, setSolved] = useState([]);
       const [mistakes, setMistakes] = useState(0);
       const [status, setStatus] = useState("playing");
-
+ 
       useEffect(() => {
         const allTiles = puzzle.groups.flatMap((g, gi) =>
           g.words.map(word => ({ word, groupIndex: gi }))
@@ -187,30 +1036,30 @@
         setMistakes(0);
         setStatus("playing");
       }, [puzzle]);
-
+ 
       const handleTileClick = (tile) => {
         if (status !== "playing") return;
-
+ 
         if (selected.some(s => s.word === tile.word)) {
           setSelected(selected.filter(s => s.word !== tile.word));
         } else if (selected.length < 4) {
           setSelected([...selected, tile]);
         }
       };
-
+ 
       const handleSubmit = () => {
         if (selected.length !== 4) return;
-
+ 
         const targetGroup = selected[0].groupIndex;
         const isCorrect = selected.every(
           s => s.groupIndex === targetGroup
         );
-
+ 
         if (isCorrect) {
           const nextSolved = [...solved, targetGroup];
           setSolved(nextSolved);
           setSelected([]);
-
+ 
           if (nextSolved.length === 4) {
             setStatus("won");
           }
@@ -218,7 +1067,7 @@
           const nextMistakes = mistakes + 1;
           setMistakes(nextMistakes);
           setSelected([]);
-
+ 
           if (nextMistakes >= 4) {
             setSolved([0, 1, 2, 3]);
             setStatus("lost");
@@ -227,11 +1076,11 @@
           }
         }
       };
-
+ 
       const remainingTiles = tiles.filter(
         t => !solved.includes(t.groupIndex)
       );
-
+ 
       return (
         <div style={{
           maxWidth: 500,
@@ -260,11 +1109,11 @@
               {puzzle.name}
             </span>
           </div>
-
+ 
           <h2 style={{ textAlign: "center", margin: "0 0 18px" }}>
             Connections
           </h2>
-
+ 
           <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
             {solved.map(gi => (
               <div
@@ -290,7 +1139,7 @@
               </div>
             ))}
           </div>
-
+ 
           {status === "playing" && (
             <div style={{
               display: "grid",
@@ -300,7 +1149,7 @@
             }}>
               {remainingTiles.map((t, index) => {
                 const isSel = selected.some(s => s.word === t.word);
-
+ 
                 return (
                   <button
                     key={`${t.word}-${index}`}
@@ -327,7 +1176,7 @@
               })}
             </div>
           )}
-
+ 
           <div style={{ textAlign: "center", marginBottom: 20 }}>
             <span style={{ fontSize: 14, fontWeight: "bold" }}>
               Strikes Remaining:{" "}
@@ -346,7 +1195,7 @@
               />
             ))}
           </div>
-
+ 
           {status === "playing" ? (
             <div style={{
               display: "flex",
@@ -367,7 +1216,7 @@
               >
                 Shuffle Tiles
               </button>
-
+ 
               <button
                 onClick={handleSubmit}
                 disabled={selected.length !== 4}
@@ -393,7 +1242,7 @@
               }}>
                 {status === "won" ? "Nicely Done! 🎉" : "Game Over! ⛔"}
               </div>
-
+ 
               <button
                 onClick={onBack}
                 style={{
@@ -413,7 +1262,7 @@
         </div>
       );
     }
-
+ 
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<ConnectionsRoot />);
     </script>
