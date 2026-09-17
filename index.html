@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connections</title>
+    <!-- Load React and Babel libraries to run the app directly in the browser -->
+    <script src="https://unpkg.com" crossorigin></script>
+    <script src="https://unpkg.com" crossorigin></script>
+    <script src="https://unpkg.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+    const { useState, useEffect, useCallback, useRef } = React;
+
+    /* ============================================================
+       CONFIG
+       ============================================================ */
+    const ADMIN_PASSWORD = "SHORESCHOOLISGREAT67";
+    const SECRET_CLICKS = 7; 
+
+    const DIFFICULTY_ORDER = ["yellow", "green", "blue", "purple"];
+    const DIFFICULTY_STYLE = {
+      yellow: { bg: "#f9df6d", label: "Yellow · easiest", emoji: "🟨" },
+      green:  { bg: "#a0c35a", label: "Green", emoji: "🟩" },
+      blue:   { bg: "#b0c4ef", label: "Blue", emoji: "🟦" },
+      purple: { bg: "#ba81c5", label: "Purple · trickiest", emoji: "🟪" },
+    };
+    const MAX_MISTAKES = 4;
+
+    const ACCENT = "#6C5CE7";
+    const ACCENT_PINK = "#FF6FA5";
+    const HEADER_GRADIENT = `linear-gradient(90deg, ${ACCENT}, ${ACCENT_PINK})`;
+    const PAGE_BG = "linear-gradient(180deg, #f7f5ff 0%, #ffffff 260px)";
+
+    /* ============================================================
+       LOCAL STORAGE DATABASE REPLACEMENTS
+       ============================================================ */
+    const INDEX_KEY = "connections:index";
+    const puzzleKey = (id) => `connections:puzzle:${id}`;
+    const ANALYTICS_KEY = "connections:analytics";
+    const STATS_KEY = "connections:stats";
+    const LEADERBOARD_KEY = "connections:leaderboard";
+
+    function newId() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    }
+    function shuffle(arr) {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+    function formatTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${m}:${s.toString().padStart(2, "0")}`;
+    }
+
+    let _audioCtx = null;
+    function getAudioCtx() {
+      try {
+        if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        return _audioCtx;
+      } catch {
+        return null;
+      }
+    }
+    function playTone(freqs, durationMs, type) {
+      const ctx = getAudioCtx();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      freqs.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.001, now + i * 0.09);
+        gain.gain.exponentialRampToValueAtTime(0.15, now + i * 0.09 + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.09 + durationMs / 1000);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + i * 0.09);
+        osc.stop(now + i * 0.09 + durationMs / 1000 + 0.02);
+      });
+    }
+    function playDing() { playTone([660, 880], 220, "sine"); }
+    function playBuzz() { playTone([160, 110], 260, "sawtooth"); }
+    function playWinFanfare() { playTone([523, 659, 784, 1047], 260, "sine"); }
+
+    async function loadIndex() {
+      try {
+        const res = localStorage.getItem(INDEX_KEY);
+        return res ? JSON.parse(res) : [];
+      } catch {
+        return [];
+      }
+    }
+    async function saveIndex(list) {
+      localStorage.setItem(INDEX_KEY, JSON.stringify(list));
+    }
+    async function loadPuzzle(id) {
+      try {
+        const res = localStorage.getItem(puzzleKey(id));
+        return res ? JSON.parse(res) : null;
+      } catch {
+        return null;
+      }
+    }
+    async function savePuzzle(puzzle) {
+      localStorage.setItem(puzzleKey(puzzle.id), JSON.stringify(puzzle));
+    }
+    async function deletePuzzleStorage(id) {
+      try { localStorage.removeItem(puzzleKey(id)); } catch {}
+    }
+
+    async function loadAnalytics() {
+      try {
+        const res = localStorage.getItem(ANALYTICS_KEY);
+        return res ? JSON.parse(res) : { total: 0, daily: {} };
+      } catch {
+        return { total: 0, daily: {} };
+      }
+    }
+    async function logVisit() {
+      try {
+        const data = await loadAnalytics();
+        const today = new Date().toISOString().slice(0, 10);
+        data.total = (data.total || 0) + 1;
+        data.daily = data.daily || {};
+        data.daily[today] = (data.daily[today] || 0) + 1;
+        localStorage.setItem(ANALYTICS_KEY, JSON.stringify(data));
+      } catch {}
+    }
+
+    async function loadStats() {
+      try {
+        const res = localStorage.getItem(STATS_KEY);
+        return res ? JSON.parse(res) : {};
+      } catch {
+        return {};
+      }
+    }
+    async function logResult(puzzleId, result) {
+      try {
+        const stats = await loadStats();
+        const s = stats[puzzleId] || { wins: 0, losses: 0 };
+        if (result === "won") s.wins += 1;
+        if (result === "lost") s.losses += 1;
+        stats[puzzleId] = s;
+        localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+      } catch {}
+    }
+
+    async function loadLeaderboard() {
+      try {
+        const res = localStorage.getItem(LEADERBOARD_KEY);
+        return res ? JSON.parse(res) : {};
+      } catch {
+        return {};
+      }
+    }
+    async function loadMyInitials() {
+      try {
+        const res = localStorage.getItem("connections:myinitials");
+        return res ? res : "";
+      } catch {
+        return "";
+      }
+    }
+    async function saveMyInitials(initials) {
+      try { localStorage.setItem("connections:myinitials", initials); } catch {}
+    }
+
+    function Confetti() {
+      const pieces = Array.from({ length: 40 }).map((_, i) => ({
+        id: i,
+        left: Math.random() * 100,
+        delay: Math.random() * 0.4,
+        duration: 1.6 + Math.random() * 1.2,
+        color: ["#f9df6d", "#a0c35a", "#b0c4ef", "#ba81c5", "#ff8a65"][i % 5],
+        rotate: Math.random() * 360,
+        size: 6 + Math.random() * 6,
+      }));
+      return (
+        <div style={{ position: "fixed", inset: 0, pointerEvents: "none", overflow: "hidden", zIndex: 900 }}>
+          <style>{`
+            @keyframes confettiFall {
+              0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+              100% { transform: translateY(110vh) rotate(360deg); opacity: 0.9; }
+            }
+          `}</style>
+          {pieces.map((p) => (
+            <div
+              key={p.id}
+              style={{
+                position: "absolute", top: 0, left: `${p.left}%`,
+                width: p.size, height: p.size * 0.6, background: p.color,
+                animation: `confettiFall ${p.duration}s ease-in ${p.delay}s forwards`,
+                transform: `rotate(${p.rotate}deg)`, borderRadius: 2,
+              }}
+            />
+          ))}
+        </div>
+      );
+    }
+
+    async function submitLeaderboardEntry(puzzleId, initials, timeSeconds, mistakes) {
+      try {
+        const all = await loadLeaderboard();
+        const list = all[puzzleId] || [];
+        list.push({ initials: initials.toUpperCase().slice(0, 3), timeSeconds, mistakes });
+        list.sort((a, b) => a.mistakes - b.mistakes || a.timeSeconds - b.timeSeconds);
+        all[puzzleId] = list.slice(0, 10);
+        localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(all));
+        return all[puzzleId];
+      } catch {
+        return [];
+      }
+    }
+
+    /* ============================================================
+       ROOT
+       ============================================================ */
+    function ConnectionsRoot() {
+      const [showAdminModal, setShowAdminModal] = useState(false);
+      const clickCountRef = useRef(0);
+      const clickTimerRef = useRef(null);
+
+      function handleSecretTrigger() {
+        clickCountRef.current += 1;
+        clearTimeout(clickTimerRef.current);
+        clickTimerRef.current = setTimeout(() => { clickCountRef.current = 0; }, 1500);
+        if (clickCountRef.current >= SECRET_CLICKS) {
+          clickCountRef.current = 0;
+          setShowAdminModal(true);
+        }
+      }
+
+      return (
+        <div style={{
+          minHeight: "100vh", width: "100%", background: PAGE_BG,
+          fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif",
+          color: "#000",
+        }}>
+          <GameApp onSecretTrigger={handleSecretTrigger} />
+
+          {showAdminModal && (
+            <div
+              style={{
+                position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+                display: "flex", alignItems: "flex-start", justifyContent: "center",
+                overflowY: "auto", zIndex: 1000, padding: "20px 0",
+              }}
+              onClick={(e) => { if (e.target === e.currentTarget) setShowAdminModal(false); }}
+            >
+              <div style={{ background: "#fff", borderRadius: 16, width: "min(820px, 94%)", position: "relative" }}>
+                <button
+                  onClick={() => setShowAdminModal(false)}
+                  style={{ position: "absolute", top: 14, right: 14, background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#999", lineHeight: 1 }}
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+                <AdminGate />
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ============================================================
+       ADMIN GATE
+Use code with caution.============================================================ */function AdminGate() {const [authed, setAuthed] = useState(false);const [pw, setPw] = useState("");const [error, setError] = useState("");function submit() {if (pw === ADMIN_PASSWORD) {setAuthed(true);setError("");} else {setError("That password isn't right.");}}if (authed) return ;return (<div style={{ maxWidth: 380, margin: "0 auto", padding: "80px 24px", textAlign: "center" }}><h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 6 }}>Admin access<p style={{ fontSize: 14, color: "#666", marginBottom: 24 }}>Enter the password to manage puzzles.<inputtype="password"value={pw}onChange={(e) => setPw(e.target.value)}onKeyDown={(e) => { if (e.key === "Enter") submit(); }}placeholder="Password"style={{ width: "100%", padding: "12px 14px", fontSize: 15, border: "2px solid #000", borderRadius: 8, marginBottom: 12, boxSizing: "border-box" }}autoFocus/>{error && <div style={{ color: "#c0392b", fontSize: 13, marginBottom: 12 }}>{error}}<buttononClick={submit}style={{ width: "100%", padding: "12px 14px", fontSize: 15, fontWeight: 700, background: "#000", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>Enter);}/* ============================================================ADMIN PANEL============================================================ */function emptyGroups() {return DIFFICULTY_ORDER.map((d) => ({ difficulty: d, category: "", words: ["", "", "", ""] }));}const AI_DIFFICULTY_PRESETS = {easy: {label: "Easy",prompt: "Keep it approachable: common vocabulary, fairly obvious category connections, minimal wordplay or trickery, even in the purple group.",},medium: {label: "Medium",prompt: "Use a normal mix: yellow and green should be fairly clear, blue a bit less obvious, and purple should involve some wordplay or a twist, but nothing too obscure.",},hard: {label: "Hard",prompt: "Make it genuinely challenging: rely on overlapping words that could plausibly fit more than one group, less common vocabulary, and real wordplay or double meanings, especially in blue and purple.",},extreme: {label: "Extreme / wordplay-heavy",prompt: "Make this very hard, NYT-Sunday-puzzle level: heavy use of puns, homophones, hidden words, or misdirection where several words look like they belong to a different group than they do. Purple should be genuinely tricky to see even after getting the other three.",},};function Section({ title, icon, defaultOpen = true, children }) {const [open, setOpen] = useState(defaultOpen);return (<div style={{ border: "1px solid #eee", borderRadius: 14, marginBottom: 16, overflow: "hidden", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}><buttononClick={() => setOpen(!open)}style={{width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center",padding: "14px 18px", background: "none", border: "none", cursor: "pointer", textAlign: "left",borderLeft: 4px solid ${ACCENT},}}><span style={{ fontSize: 15, fontWeight: 700 }}>{icon} {title}<span style={{ fontSize: 13, color: "#999" }}>{open ? "▲" : "▼"}{open && <div style={{ padding: "0 18px 18px 22px" }}>{children}});}function AdminPanel() {const [index, setIndex] = useState(null);const [name, setName] = useState("");const [groups, setGroups] = useState(emptyGroups());const [difficultyScore, setDifficultyScore] = useState("");const [saving, setSaving] = useState(false);const [status, setStatus] = useState("");const [editingId, setEditingId] = useState(null);const [confirmDeleteId, setConfirmDeleteId] = useState(null);const [previewId, setPreviewId] = useState(null);const [aiTopic, setAiTopic] = useState("");const [aiDifficulty, setAiDifficulty] = useState("medium");const [aiLoading, setAiLoading] = useState(false);const [aiError, setAiError] = useState("");const [analytics, setAnalytics] = useState(null);const [stats, setStats] = useState({});const [bulkText, setBulkText] = useState("");const [bulkStatus, setBulkStatus] = useState("");const [backupText, setBackupText] = useState("");const [backupCopied, setBackupCopied] = useState(false);const refresh = useCallback(async () => {const list = await loadIndex();setIndex(list.sort((a, b) => b.createdAt - a.createdAt));setStats(await loadStats());}, []);useEffect(() => { refresh(); loadAnalytics().then(setAnalytics); }, [refresh]);function updateWord(gi, wi, value) {setGroups((prev) => {const next = prev.map((g) => ({ ...g, words: [...g.words] }));next[gi].words[wi] = value;return next;});}function updateCategory(gi, value) {setGroups((prev) => {const next = prev.map((g) => ({ ...g, words: [...g.words] }));next[gi].category = value;return next;});}function validate() {if (!name.trim()) return "Give the puzzle a name.";for (const g of groups) {if (!g.category.trim()) return "Every category needs a name.";for (const w of g.words) if (!w.trim()) return "Every group needs 4 words.";}const allWords = groups.flatMap((g) => g.words.map((w) => w.trim().toUpperCase()));if (new Set(allWords).size !== 16) return "All 16 words must be different.";return null;}function resetForm() {setName("");setGroups(emptyGroups());setDifficultyScore("");setEditingId(null);setStatus("");}async function handleSave() {const err = validate();if (err) { setStatus(err); return; }setSaving(true);setStatus("");const id = editingId || newId();const existing = editingId ? await loadPuzzle(editingId) : null;const puzzle = {id,name: name.trim(),createdAt: existing ? existing.createdAt : Date.now(),difficultyScore: difficultyScore === "" ? null : Number(difficultyScore),groups: groups.map((g) => ({difficulty: g.difficulty,category: g.category.trim(),words: g.words.map((w) => w.trim().toUpperCase()),})),};try {await savePuzzle(puzzle);const list = await loadIndex();const entry = { id, name: puzzle.name, createdAt: puzzle.createdAt, difficultyScore: puzzle.difficultyScore };const nextList = editingId? list.map((p) => (p.id === id ? entry : p)): [...list, entry];await saveIndex(nextList);const wasEditing = !!editingId;resetForm();setStatus(wasEditing ? "Puzzle updated." : "Puzzle saved.");refresh();} catch {setStatus("Something went wrong saving — try again.");}setSaving(false);}async function handleEdit(id) {const p = await loadPuzzle(id);if (!p) return;setName(p.name);setDifficultyScore(p.difficultyScore != null ? String(p.difficultyScore) : "");setGroups(DIFFICULTY_ORDER.map((d) => {const found = p.groups.find((g) => g.difficulty === d);return found? { difficulty: d, category: found.category, words: [...found.words] }: { difficulty: d, category: "", words: ["", "", "", ""] };}));setEditingId(id);setStatus("");}async function handleDuplicate(id) {const p = await loadPuzzle(id);if (!p) return;setName(p.name + " (copy)");setDifficultyScore(p.difficultyScore != null ? String(p.difficultyScore) : "");setGroups(DIFFICULTY_ORDER.map((d) => {const found = p.groups.find((g) => g.difficulty === d);return found? { difficulty: d, category: found.category, words: [...found.words] }: { difficulty: d, category: "", words: ["", "", "", ""] };}));setEditingId(null);setStatus("Loaded as a copy — click Save puzzle to create a new one.");}async function handleDelete(id) {if (confirmDeleteId !== id) {setConfirmDeleteId(id);return;}setConfirmDeleteId(null);const list = await loadIndex();await saveIndex(list.filter((p) => p.id !== id));await deletePuzzleStorage(id);if (editingId === id) resetForm();refresh();}async function handleGenerate() {setAiLoading(true);setAiError("");setAiError("Direct AI generator requests require a Vercel secure API backend. Please use the Manual Grid tools below to test your admin layout for now.");setAiLoading(false);}async function handleBulkImport() {setBulkStatus("");let parsed;try {parsed = JSON.parse(bulkText);if (!Array.isArray(parsed)) throw new Error("not an array");} catch {setBulkStatus("That doesn't look like valid JSON — check the format and try again.");return;}const list = await loadIndex();const newEntries = [];let imported = 0;let skipped = 0;for (const item of parsed) {if (!item || !item.name || !Array.isArray(item.groups) || item.groups.length !== 4) { skipped++; continue; }const okGroups = item.groups.every((g) => g && g.category && Array.isArray(g.words) && g.words.length === 4);if (!okGroups) { skipped++; continue; }const id = newId();const createdAt = Date.now() + imported;const orderedGroups = DIFFICULTY_ORDER.map((d, i) => {const found = item.groups.find((g) => g.difficulty === d) || item.groups[i];return {difficulty: d,category: String(found.category).trim(),words: found.words.map((w) => String(w).trim().toUpperCase()),};});const puzzle = {id, name: String(item.name).trim(), createdAt,difficultyScore: item.difficultyScore != null ? Number(item.difficultyScore) : null,groups: orderedGroups,};await savePuzzle(puzzle);newEntries.push({ id, name: puzzle.name, createdAt, difficultyScore: puzzle.difficultyScore });imported++;}await saveIndex([...list, ...newEntries]);setBulkStatus(Imported ${imported} puzzle${imported === 1 ? "" : "s"}.${skipped ?  Skipped ${skipped} that didn't match the format. : ""});setBulkText("");refresh();}async function handleExport() {const list = await loadIndex();const puzzles = {};for (const p of list) puzzles[p.id] = await loadPuzzle(p.id);const dump = {index: list,puzzles,stats: await loadStats(),leaderboard: await loadLeaderboard(),analytics: await loadAnalytics(),exportedAt: new Date().toISOString(),};setBackupText(JSON.stringify(dump, null, 2));}async function handleCopyBackup() {try {await navigator.clipboard.writeText(backupText);setBackupCopied(true);setTimeout(() => setBackupCopied(false), 2000);} catch {}}return (<div style={{ maxWidth: 780, margin: "0 auto", padding: "40px 24px 80px" }}><h1 style={{ fontSize: 26, fontWeight: 800, marginBottom: 4, background: HEADER_GRADIENT, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text", display: "inline-block" }}>Puzzle admin<p style={{ fontSize: 14, color: "#666", marginBottom: 20 }}>Create, review, and remove puzzles. Anything you save here shows up for everyone playing the game.{/* Usage analytics */}Usage{analytics === null ? () : (<></>)}{/* Backup / export */}Backup your data{backupText && ()}{/* Bulk import */}Bulk import{/* AI generation */}Let AI draft one for you{/* Manual editor */}<div style={{ border: editingId ? 2px solid ${ACCENT} : "1px solid #eee", borderRadius: 14, padding: 20, marginBottom: 16, background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}><h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>{editingId ? "✏️ Editing puzzle" : "📝 Puzzle details"}<div style={{ display: "flex", gap: 10, marginBottom: 18 }}><div style={{ flex: 1 }}>Puzzle name<inputvalue={name}onChange={(e) => setName(e.target.value)}placeholder="e.g. 'Kitchen Confidential'"style={{ width: "100%", padding: "10px 12px", border: "1px solid #ccc", borderRadius: 8, fontSize: 14, boxSizing: "border-box" }}/><div style={{ width: 140 }}>Difficulty (1-12)<inputtype="number" min="1" max="12"value={difficultyScore}onChange={(e) => setDifficultyScore(e.target.value)}placeholder="optional"style={{ width: "100%", padding: "10px 12px", border: "1px solid #ccc", borderRadius: 8, fontSize: 14, boxSizing: "border-box" }}/>{groups.map((g, gi) => (<div key={g.difficulty} style={{ marginBottom: 16 }}><div style={{ display: "inline-block", background: DIFFICULTY_STYLE[g.difficulty].bg, padding: "2px 10px", borderRadius: 6, fontSize: 12, fontWeight: 700, marginBottom: 6 }}>{DIFFICULTY_STYLE[g.difficulty].label}<inputvalue={g.category}onChange={(e) => updateCategory(gi, e.target.value)}placeholder="Category name"style={{ width: "100%", padding: "8px 10px", border: "1px solid #ccc", borderRadius: 8, fontSize: 14, marginBottom: 6, boxSizing: "border-box" }}/><div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>{g.words.map((w, wi) => (<inputkey={wi}value={w}onChange={(e) => updateWord(gi, wi, e.target.value)}placeholder={Word ${wi + 1}}style={{ padding: "8px 8px", border: "1px solid #ccc", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }}/>))}))}{status && <div style={{ fontSize: 13, color: "#333", marginBottom: 10 }}>{status}}<div style={{ display: "flex", gap: 8 }}>{saving ? "Saving…" : editingId ? "Update puzzle" : "Save puzzle"}{editingId && Cancel}{/* Existing puzzles */}<h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>🧩 Existing puzzles{index === null && <p style={{ fontSize: 14, color: "#999" }}>Loading…}{index && index.length === 0 && <p style={{ fontSize: 14, color: "#999" }}>No puzzles yet — make one above.}{index && index.map((p) => {const s = stats[p.id] || { wins: 0, losses: 0 };const isConfirming = confirmDeleteId === p.id;return (<div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", border: "1px solid #eee", borderRadius: 8, marginBottom: 8, flexWrap: "wrap", gap: 8 }}><div style={{ fontWeight: 600, fontSize: 14 }}>{p.name}{p.difficultyScore != null && (<span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, background: "#eee", borderRadius: 6, padding: "2px 6px" }}>{p.difficultyScore}/12)}<div style={{ fontSize: 12, color: "#999" }}>{new Date(p.createdAt).toLocaleDateString()} · {s.wins} won · {s.losses} lost<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button onClick={() => setPreviewId(p.id)} style={smallBtn}>Preview<button onClick={() => handleDuplicate(p.id)} style={smallBtn}>Duplicate<button onClick={() => handleEdit(p.id)} style={smallBtn}>Edit<buttononClick={() => handleDelete(p.id)}style={{ ...smallBtn, border: "1px solid #c0392b", background: isConfirming ? "#c0392b" : "#fff", color: isConfirming ? "#fff" : "#c0392b" }}>{isConfirming ? "Click again to confirm" : "Delete"}{isConfirming && <button onClick={() => setConfirmDeleteId(null)} style={smallBtn}>Cancel});})}{previewId && (<div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1100, display: "flex", alignItems: "flex-start", justifyContent: "center", overflowY: "auto", padding: "20px 0" }}><div style={{ background: "#fff", borderRadius: 16, width: "min(560px, 94%)" }}><BoardactiveId={previewId}index={[{ id: previewId }]}onBack={() => setPreviewId(null)}onChangePuzzle={() => {}}isPreview/>)});}const primaryBtn = { padding: "10px 18px", fontSize: 14, fontWeight: 700, borderRadius: 8, border: "none", background: HEADER_GRADIENT, color: "#fff", cursor: "pointer" };const secondaryBtn = { padding: "10px 16px", fontSize: 14, fontWeight: 700, borderRadius: 8, border: 1.5px solid ${ACCENT}, background: "#fff", color: ACCENT, cursor: "pointer" };const smallBtn = { padding: "6px 12px", fontSize: 13, fontWeight: 600, borderRadius: 6, border: "1px solid #ddd", background: "#fff", color: "#555", cursor: "pointer" };/* ============================================================GAME — puzzle picker============================================================ */function GameApp({ onSecretTrigger }) {const [index, setIndex] = useState(null);const [activeId, setActiveId] = useState(null);const [difficultyFilter, setDifficultyFilter] = useState("all");const [expandedDay, setExpandedDay] = useState(null);const refresh = useCallback(async () => {const list = await loadIndex();setIndex(list.sort((a, b) => b.createdAt - a.createdAt));}, []);useEffect(() => { refresh(); logVisit(); }, [refresh]);if (activeId) {return <Board activeId={activeId} index={index || []} onBack={() => setActiveId(null)} onChangePuzzle={setActiveId} />;}function matchesDifficulty(p) {if (difficultyFilter === "all") return true;if (difficultyFilter === "unrated") return p.difficultyScore == null;const s = p.difficultyScore;if (s == null) return false;if (difficultyFilter === "easy") return s <= 4;if (difficultyFilter === "medium") return s >= 5 && s <= 8;if (difficultyFilter === "hard") return s >= 9;return true;}const todayKey = new Date().toISOString().slice(0, 10);const dayKeyOf = (p) => new Date(p.createdAt).toISOString().slice(0, 10);const allPuzzles = index || [];const todaysPuzzles = allPuzzles.filter((p) => dayKeyOf(p) === todayKey).filter(matchesDifficulty);const olderPuzzles = allPuzzles.filter((p) => dayKeyOf(p) !== todayKey).filter(matchesDifficulty);const groupedByDay = {};olderPuzzles.forEach((p) => {const k = dayKeyOf(p);groupedByDay[k] = groupedByDay[k] || [];groupedByDay[k].push(p);});const dayKeys = Object.keys(groupedByDay).sort().reverse();return (<div style={{ maxWidth: 640, margin: "0 auto", padding: "56px 24px 80px", textAlign: "center" }}><h1onClick={onSecretTrigger}style={{fontSize: 38, fontWeight: 800, letterSpacing: -0.5, marginBottom: 6, cursor: "default", userSelect: "none",background: HEADER_GRADIENT, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",display: "inline-block",}}>Connections<p style={{ fontSize: 15, color: "#666", marginBottom: 24 }}>Find groups of four words that share something in common.<div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 30, flexWrap: "wrap" }}>{[["all", "All"], ["easy", "Easy (1–4)"], ["medium", "Medium (5–8)"], ["hard", "Hard (9–12)"], ["unrated", "Unrated"],].map(([key, label]) => (<buttonkey={key}onClick={() => setDifficultyFilter(key)}style={{padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: "pointer",border: difficultyFilter === key ? "none" : "1px solid #ddd",background: difficultyFilter === key ? ACCENT : "#fff",color: difficultyFilter === key ? "#fff" : "#555",}}>{label}))}{index === null && <p style={{ color: "#999" }}>Loading puzzles…}{index && allPuzzles.length === 0 && <p style={{ color: "#999" }}>No puzzles are available yet — check back soon.}{todaysPuzzles.length > 0 && (<div style={{ marginBottom: 30 }}><div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.5, color: ACCENT, marginBottom: 10, textAlign: "left" }}>PUZZLES OF THE DAY<div style={{ display: "grid", gap: 10 }}>{todaysPuzzles.map((p) => <PuzzleRow key={p.id} p={p} onClick={() => setActiveId(p.id)} highlight />)})}{dayKeys.length > 0 && (<div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.5, color: "#999", marginBottom: 10, textAlign: "left" }}>ARCHIVE<div style={{ display: "grid", gap: 8 }}>{dayKeys.map((k) => {const puzzlesForDay = groupedByDay[k];const isOpen = expandedDay === k;return (<div key={k} style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}><buttononClick={() => setExpandedDay(isOpen ? null : k)}style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", background: "#fafafa", border: "none", cursor: "pointer", textAlign: "left" }}><span style={{ fontWeight: 700, fontSize: 14 }}>{new Date(k).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}<span style={{ fontSize: 12, color: "#999" }}>{puzzlesForDay.length} puzzle{puzzlesForDay.length === 1 ? "" : "s"} {isOpen ? "▲" : "▼"}{isOpen && (<div style={{ display: "grid", gap: 8, padding: 10 }}>{puzzlesForDay.map((p) => <PuzzleRow key={p.id} p={p} onClick={() => setActiveId(p.id)} />)})});})})});}function PuzzleRow({ p, onClick, highlight }) {return (<buttononClick={onClick}style={{display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px",border: highlight ? 2px solid ${ACCENT} : "1px solid #e2e2e2",borderRadius: 12, background: highlight ? "#faf7ff" : "#fafafa", cursor: "pointer", textAlign: "left",}}><span style={{ fontWeight: 700, fontSize: 16 }}>{p.name}{p.difficultyScore != null && (<span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#999" }}>· {p.difficultyScore}/12)}<span style={{ fontSize: 13, color: ACCENT, fontWeight: 700 }}>Play →);}/* ============================================================BOARD — gameplay============================================================ */function Board({ activeId, index, onBack, onChangePuzzle, isPreview }) {const [puzzle, setPuzzle] = useState(null);const [tiles, setTiles] = useState([]);const [selected, setSelected] = useState([]);const [solved, setSolved] = useState([]);const [mistakes, setMistakes] = useState(0);const [message, setMessage] = useState("");const [shake, setShake] = useState(false);const [status, setStatus] = useState("playing");const [hintWords, setHintWords] = useState([]);const [elapsedSec, setElapsedSec] = useState(0);const [leaderboard, setLeaderboard] = useState([]);const [initials, setInitials] = useState("");const [scoreSubmitted, setScoreSubmitted] = useState(false);const [shareCopied, setShareCopied] = useState(false);const [showConfetti, setShowConfetti] = useState(false);const timeoutRef = useRef(null);const intervalRef = useRef(null);const loadPuzzleById = useCallback(async (id) => {const p = await loadPuzzle(id);if (!p) return;setPuzzle(p);const allTiles = p.groups.flatMap((g, gi) => g.words.map((word) => ({ word, groupIndex: gi })));setTiles(shuffle(allTiles));setSelected([]);setSolved([]);setMistakes(0);setMessage("");setStatus("playing");setHintWords([]);setElapsedSec(0);setInitials("");loadMyInitials().then((saved) => { if (saved) setInitials(saved); });setScoreSubmitted(false);setShareCopied(false);clearInterval(intervalRef.current);intervalRef.current = setInterval(() => setElapsedSec((s) => s + 1), 1000);}, []);useEffect(() => { loadPuzzleById(activeId); }, [activeId, loadPuzzleById]);useEffect(() => () => { clearTimeout(timeoutRef.current); clearInterval(intervalRef.current); }, []);useEffect(() => {if (status !== "playing") clearInterval(intervalRef.current);}, [status]);useEffect(() => {if (status === "won" && puzzle && !isPreview) {loadLeaderboard().then((all) => setLeaderboard(all[puzzle.id] || []));}}, [status, puzzle, isPreview]);if (!puzzle) return <div style={{ textAlign: "center", padding: 80, color: "#999" }}>Loading puzzle…;const remainingTiles = tiles.filter((t) => !solved.includes(t.groupIndex));function toggleTile(tile) {if (status !== "playing") return;setMessage("");setSelected((prev) => {const already = prev.find((t) => t.word === tile.word);if (already) return prev.filter((t) => t.word !== tile.word);if (prev.length >= 4) return prev;return [...prev, tile];});}function handleShuffle() {setTiles((prev) => {const solvedTiles = prev.filter((t) => solved.includes(t.groupIndex));const unsolved = shuffle(prev.filter((t) => !solved.includes(t.groupIndex)));return [...solvedTiles, ...unsolved];});}function handleDeselect() { setSelected([]); }function handleHint() {if (status !== "playing") return;const remainingGroupIndexes = DIFFICULTY_ORDER.map((, i) => i).filter((gi) => !solved.includes(gi));if (!remainingGroupIndexes.length) return;const target = remainingGroupIndexes[0];const wordsInGroup = tiles.filter((t) => t.groupIndex === target).map((t) => t.word);const twoWords = shuffle(wordsInGroup).slice(0, 2);setHintWords(twoWords);setTimeout(() => setHintWords([]), 3000);const nextMistakes = mistakes + 1;setMistakes(nextMistakes);if (nextMistakes >= MAX_MISTAKES) {setTimeout(() => {setSolved(puzzle.groups.map((, i) => i));setStatus("lost");if (!isPreview) logResult(puzzle.id, "lost");}, 3100);}}function handleSubmit() {if (selected.length !== 4 || status !== "playing") return;const gi = selected[0].groupIndex;const allSame = selected.every((t) => t.groupIndex === gi);if (allSame) {const newSolved = [...solved, gi];setSolved(newSolved);setSelected([]);setMessage("");playDing();if (newSolved.length === 4) {setStatus("won");playWinFanfare();setShowConfetti(true);setTimeout(() => setShowConfetti(false), 2800);if (!isPreview) logResult(puzzle.id, "won");}return;}const counts = {};selected.forEach((t) => { counts[t.groupIndex] = (counts[t.groupIndex] || 0) + 1; });const closeCall = Object.values(counts).some((c) => c === 3);const nextMistakes = mistakes + 1;setMistakes(nextMistakes);setMessage(closeCall ? "One away…" : "Not quite — try again.");setShake(true);playBuzz();timeoutRef.current = setTimeout(() => {setShake(false);setSelected([]);if (nextMistakes >= MAX_MISTAKES) {setSolved(puzzle.groups.map((_, i) => i));setStatus("lost");if (!isPreview) logResult(puzzle.id, "lost");}}, 650);}function goToNextPuzzle() {if (!index.length) return;const pos = index.findIndex((p) => p.id === activeId);const next = index[(pos + 1) % index.length];onChangePuzzle(next.id);}async function handleSubmitScore() {if (!initials.trim()) return;const updated = await submitLeaderboardEntry(puzzle.id, initials, elapsedSec, mistakes);setLeaderboard(updated);setScoreSubmitted(true);saveMyInitials(initials.toUpperCase().slice(0, 3));}function buildShareText() {const emojiLine = solved.map((gi) => DIFFICULTY_STYLE[puzzle.groups[gi].difficulty].emoji).join("");const missing = "⬛".repeat(Math.max(0, 4 - solved.length));const perfect = mistakes === 0 && status === "won" ? " 🏅 Perfect!" : "";return Connections – ${puzzle.name}\n${emojiLine}${missing}\n${mistakes} mistake${mistakes === 1 ? "" : "s"} · ${formatTime(elapsedSec)}${perfect};}async function handleShare() {try {await navigator.clipboard.writeText(buildShareText());setShareCopied(true);setTimeout(() => setShareCopied(false), 2000);} catch {}}const solvedGroupsInOrder = [...solved].reverse().map((gi) => puzzle.groups[gi]);return (<div style={{ maxWidth: 520, margin: "0 auto", padding: "32px 20px 60px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}><button onClick={onBack} style={{ background: "none", border: "none", fontSize: 13, fontWeight: 600, color: "#666", cursor: "pointer", padding: 0 }}>{isPreview ? "← Close preview" : "← Puzzles"}<span style={{ fontSize: 12, color: "#999", fontWeight: 600 }}>{puzzle.name}<div style={{ display: "flex", justifyContent: "center", alignItems: "baseline", gap: 10, margin: "8px 0 4px" }}><h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: -0.5, margin: 0 }}>Connections{status === "playing" && <span style={{ fontSize: 13, color: "#999", fontVariantNumeric: "tabular-nums" }}>{formatTime(elapsedSec)}}<p style={{ textAlign: "center", fontSize: 14, color: "#666", marginBottom: 20 }}>Create four groups of four!<div style={{ display: "grid", gap: 8, marginBottom: 12 }}>{solvedGroupsInOrder.map((g) => (<div key={g.category} style={{ background: DIFFICULTY_STYLE[g.difficulty].bg, borderRadius: 10, padding: "14px 10px", textAlign: "center" }}><div style={{ fontWeight: 800, fontSize: 14, letterSpacing: 0.4 }}>{g.category}<div style={{ fontSize: 13, marginTop: 2 }}>{g.words.join(", ")}))}<div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 16 }}>{remainingTiles.map((tile) => {const isSelected = selected.some((t) => t.word === tile.word);const isHinted = hintWords.includes(tile.word);return (<buttonkey={tile.word}onClick={() => toggleTile(tile)}style={{aspectRatio: "1.35 / 1",background: isSelected ? HEADER_GRADIENT : "#f1eefc",color: isSelected ? "#fff" : "#000",border: isHinted ? "3px solid #d4a017" : "none",borderRadius: 10, fontWeight: 700, fontSize: 13.5, letterSpacing: 0.3,cursor: "pointer", textTransform: "uppercase",transition: "transform 0.1s, background 0.15s, color 0.15s",animation: shake && isSelected ? "shakeTile 0.5s" : "none",padding: 4, wordBreak: "break-word",}}>{tile.word});})}{@keyframes shakeTile { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }}<div style={{ textAlign: "center", marginBottom: 14, minHeight: 20 }}>{message && <span style={{ fontWeight: 700, fontSize: 14 }}>{message}}<div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, marginBottom: 20 }}><span style={{ fontSize: 13, fontWeight: 600, marginRight: 4 }}>Mistakes remaining:{Array.from({ length: MAX_MISTAKES }).map((_, i) => (<span key={i} style={{ width: 10, height: 10, borderRadius: "50%", background: i < MAX_MISTAKES - mistakes ? "#000" : "#ddd", display: "inline-block" }} />))}{status === "playing" && (<div style={{ display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>ShuffleDeselect all= MAX_MISTAKES - 1}>Hint (−1 mistake)<button onClick={handleSubmit} disabled={selected.length !== 4} style={{ ...primaryBtn, opacity: selected.length === 4 ? 1 : 0.4, cursor: selected.length === 4 ? "pointer" : "default" }}>Submit)}{status !== "playing" && (<div style={{ textAlign: "center" }}>{showConfetti && }<p style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>{status === "won" ? "Nicely done! 🎉" : "So close — here's the answer."}{status === "won" && mistakes === 0 && (<p style={{ fontWeight: 700, fontSize: 13, color: "#a68b00", marginBottom: 4 }}>🏅 Perfect solve — zero mistakes!)}<p style={{ fontSize: 13, color: "#666", marginBottom: 14 }}>{mistakes} mistake{mistakes === 1 ? "" : "s"} · {formatTime(elapsedSec)}<div style={{ display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>{shareCopied ? "Copied!" : "Copy result"}{!isPreview && Next puzzle →}{!isPreview && status === "won" && (<div style={{ maxWidth: 320, margin: "0 auto", textAlign: "left", border: "1px solid #eee", borderRadius: 10, padding: 14 }}><div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>🏆 Leaderboard{!scoreSubmitted && (<div style={{ display: "flex", gap: 6, marginBottom: 10 }}><inputvalue={initials}onChange={(e) => setInitials(e.target.value.slice(0, 3))}placeholder="XYZ"style={{ width: 60, padding: "6px 8px", border: "1px solid #ccc", borderRadius: 6, fontSize: 13, textTransform: "uppercase" }}/><button onClick={handleSubmitScore} style={{ ...smallBtn, background: "#000", color: "#fff", border: "none" }}>Add my score)}{leaderboard.length === 0 ? (<div style={{ fontSize: 12, color: "#999" }}>No scores yet — be the first!) : (leaderboard.slice(0, 5).map((e, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0" }}>{i + 1}. {e.initials}{e.mistakes} mistakes · {formatTime(e.timeSeconds)})))})})});}const root = ReactDOM.createRoot(document.getElementById('root'));root.render();
